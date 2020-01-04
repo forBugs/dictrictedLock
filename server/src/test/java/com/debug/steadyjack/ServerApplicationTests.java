@@ -40,6 +40,7 @@ public class ServerApplicationTests {
 				byte[] bytes = client.getData().forPath("/fanbai");
 
 				System.out.println(new String(bytes));
+
 			} catch (Exception e) {
 				e.printStackTrace();
 			}

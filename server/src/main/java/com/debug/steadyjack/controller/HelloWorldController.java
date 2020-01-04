@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import javax.rmi.PortableRemoteObject;
 import java.util.Date;
 
 /**
@@ -37,6 +38,13 @@ public class HelloWorldController {
         BaseResponse response=new BaseResponse(StatusCode.Ok);
         try {
             //TODO：我们真正的处理逻辑
+            ProductLock productLock = new ProductLock();
+            productLock.setId(1);
+            productLock.setProductNo("10010");
+            productLock.setStock(3);
+
+            productLockMapper.updateStock(productLock);
+            System.out.println("hellow world");
 
             response.setData("hello-world");
 
