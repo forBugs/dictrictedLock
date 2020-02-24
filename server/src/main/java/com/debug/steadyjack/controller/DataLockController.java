@@ -116,6 +116,58 @@ public class DataLockController {
         return response;
     }
 
+    /**
+     * 更新商品库存-5(zookeeper分布式锁)
+     * @param dto
+     * @param bindingResult
+     * @return
+     */
+    @RequestMapping(value = prefix+"/data/base/positive/update/v5",method = RequestMethod.POST,consumes = MediaType.APPLICATION_JSON_UTF8_VALUE)
+    public BaseResponse dataBaseZookeeper(@RequestBody @Validated ProductLockDto dto, BindingResult bindingResult){
+        if (bindingResult.hasErrors()){
+            return new BaseResponse(StatusCode.InvalidParam);
+        }
+
+        BaseResponse response=new BaseResponse(StatusCode.Ok);
+        try {
+            log.debug("当前请求数据：{} ",dto);
+
+            int res=dataLockService.updateStockZookeeper(dto);
+            if (res<=0) {
+                return new BaseResponse(StatusCode.Fail);
+            }
+        }catch (Exception e){
+            log.error("更新商品库存发生异常：",e.fillInStackTrace());
+            response=new BaseResponse(StatusCode.Fail);
+        }
+        return response;
+    }
+    /**
+     * 更新商品库存-6(redisson分布式锁)
+     * @param dto
+     * @param bindingResult
+     * @return
+     */
+    @RequestMapping(value = prefix+"/data/base/positive/update/v6",method = RequestMethod.POST,consumes = MediaType.APPLICATION_JSON_UTF8_VALUE)
+    public BaseResponse dataBaseRedisson(@RequestBody @Validated ProductLockDto dto, BindingResult bindingResult){
+        if (bindingResult.hasErrors()){
+            return new BaseResponse(StatusCode.InvalidParam);
+        }
+
+        BaseResponse response=new BaseResponse(StatusCode.Ok);
+        try {
+            log.debug("当前请求数据：{} ",dto);
+
+            int res=dataLockService.updateStockRedisson(dto);
+            if (res<=0) {
+                return new BaseResponse(StatusCode.Fail);
+            }
+        }catch (Exception e){
+            log.error("更新商品库存发生异常：",e.fillInStackTrace());
+            response=new BaseResponse(StatusCode.Fail);
+        }
+        return response;
+    }
 
 
 

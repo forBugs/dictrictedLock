@@ -1,20 +1,24 @@
 package com.debug.steadyjack.service;
 
+import com.debug.steadyjack.components.DistributeRedisLock;
 import com.debug.steadyjack.dto.ProductLockDto;
 import com.debug.steadyjack.entity.ProductLock;
 import com.debug.steadyjack.mapper.ProductLockMapper;
-import com.google.common.collect.Lists;
+import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.recipes.locks.InterProcessLock;
+import org.apache.curator.framework.recipes.locks.InterProcessMutex;
+import org.redisson.api.RLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.env.Environment;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Arrays;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.stream.Stream;
+import java.util.concurrent.TimeUnit;
 
 
 /**
@@ -30,6 +34,19 @@ public class DataLockService {
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
+
+    // 记录成功获取到锁的线程总个数
+    private static final String countKey = "redis:key:count";
+
+    @Autowired
+    private CuratorFramework client;
+
+    private static final String lockPrifix = "/zklock/mylock";
+    @Autowired
+    private Environment env;
+
+    @Autowired
+    private DistributeRedisLock distributeRedisLock;
 
 
 
@@ -125,6 +142,7 @@ public class DataLockService {
             res = stringRedisTemplate.opsForValue().setIfAbsent(key, value);
             if (res) {
                 try {
+                    stringRedisTemplate.opsForValue().increment(countKey, 1L);
                     res = false;
                     // 执行真正的业务逻辑
                     result = 0;
@@ -137,6 +155,9 @@ public class DataLockService {
                             log.info("redis分布式锁获取成功：=>{}", dto.getStock());
                         }
                         return result;
+                    } else {
+                        // 发送库存不够短信，稍后处理
+                        log.info("该商品库存不够了，请选择其他商品或稍后再试");
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -158,6 +179,102 @@ public class DataLockService {
 
         return result;
     }
+
+    /**
+     * zookeeper分布式锁
+     * @param dto
+     * @return
+     * @throws Exception
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public int updateStockZookeeper(ProductLockDto dto) throws Exception{
+        int result = 0;
+
+        //
+        InterProcessLock lock = new InterProcessMutex(client, lockPrifix + dto.getId());
+
+        try {
+            // do some work inside of the critical section here
+
+            if (lock.acquire(10L, TimeUnit.SECONDS)) {
+                // 执行真正的业务逻辑
+                ProductLock entity = lockMapper.selectByPrimaryKey(dto.getId());
+                if (entity != null && entity.getStock().compareTo(dto.getStock()) >= 0) {
+
+                    entity.setStock(dto.getStock());
+                    result = lockMapper.updateStock(entity);
+                    if (result > 0) {
+                        log.info("zookeeper分布式锁获取成功：=>{}", dto.getStock());
+                    }
+                    return result;
+                } else {
+                    // 发送库存不够短信，稍后处理
+                    log.info("该商品库存不够了，请选择其他商品或稍后再试");
+                }
+
+            } else {
+                throw new RuntimeException("获取zookeeper锁失败");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw e;
+        } finally {
+            lock.release();
+        }
+
+        return result;
+    }
+    /**
+     * 基于redisson分布式锁
+     * @param dto
+     * @return
+     * @throws Exception
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public int updateStockRedisson(ProductLockDto dto) throws Exception{
+        int result = 0;
+
+        // 设置共享资源名称
+        RLock lock = distributeRedisLock.acquireLock(dto.getId() + "");
+        boolean isLock;
+        try {
+            //尝试获取分布式锁
+            // 加锁以后10秒钟自动解锁
+            // 无需调用unlock方法手动解锁
+            isLock = lock.tryLock(10, TimeUnit.SECONDS);
+
+            // 尝试加锁，最多等待100秒，上锁以后10秒自动解锁
+//            islock = lock.tryLock(100, 10, TimeUnit.SECONDS);
+            if (isLock) {
+                //TODO if get lock success, do something;
+                ProductLock entity = lockMapper.selectByPrimaryKey(dto.getId());
+                if (entity != null && entity.getStock().compareTo(dto.getStock()) >= 0) {
+
+                    entity.setStock(dto.getStock());
+                    result = lockMapper.updateStock(entity);
+                    if (result > 0) {
+                        log.info("redisson分布式锁获取成功：=>{}", dto.getStock());
+                    }
+                    return result;
+                } else {
+                    // 发送库存不够短信，稍后处理
+                    log.info("该商品库存不够了，请选择其他商品或稍后再试");
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw e;
+        } finally {
+            // 无论如何, 最后都要解锁
+            distributeRedisLock.releaseLock(lock);
+        }
+
+        return result;
+    }
+
+
+
+
 }
 
 
